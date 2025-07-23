@@ -1,3 +1,5 @@
+// https://leetcode.com/problems/maximum-erasure-value/
+
 class Solution {
     public int maximumUniqueSubarray(int[] a) {
         int n = a.length , ans=0,x=0 ,i=0 ,s=0;
