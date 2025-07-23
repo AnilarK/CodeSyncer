@@ -1,8 +1,13 @@
 import os
 import requests
 from dotenv import load_dotenv
+from db.mongo import get_mongo_client
+import time
 
 load_dotenv()
+db = get_mongo_client()
+collection = db["Leetcode"]
+
 
 LEETCODE_SESSION = os.getenv("LEETCODE_SESSION")
 LEETCODE_CSRF_TOKEN = os.getenv("LEETCODE_CSRF_TOKEN")
@@ -19,18 +24,17 @@ headers = {
 session = requests.Session()
 session.headers.update(headers)
 
-def get_accepted_submissions(limit=1000):
+def get_accepted_submissions():
+    doc = collection.find_one(sort=[("timestamp", -1)])
+    last_cron_at = int(doc["timestamp"])
+    # last_cron_at = int(time.time()) 
 
-    test_res = session.get("https://leetcode.com/api/problems/all/")
-    print(test_res.status_code)
-    print(test_res.text) 
-
-    print(f"Fetching up to {limit} accepted submissions...")
+    print(f"Fetching accepted submissions after {last_cron_at}...")
     submissions = []
     offset = 0
     has_more = True
 
-    while has_more and len(submissions) < limit:
+    while has_more :
         query = {
             "operationName": "Submissions",
             "variables": {
@@ -55,23 +59,70 @@ def get_accepted_submissions(limit=1000):
             """
         }
 
-
         res = session.post("https://leetcode.com/graphql/", json=query)
 
         try:
             data = res.json()
             if "errors" in data:
-                print("[❌] GraphQL error:", data["errors"])
+                print("GraphQL error:", data["errors"])
                 break
+
             subs = data["data"]["submissionList"]["submissions"]
-            accepted_subs = [s for s in subs if s["statusDisplay"] == "Accepted"]
-            submissions.extend(accepted_subs)
+            for sub in subs:
+                submission_time = int(sub["timestamp"])
+
+                if submission_time < last_cron_at:
+                    has_more = False
+                    break
+
+                # print(submission_time, sub["title"])
+
+                if sub["statusDisplay"] == "Accepted":
+                    submissions.append(sub)
+            
         except Exception as e:
-            print("[❌] Failed to parse response:")
-            print(res.text)  # Show the full HTML or error response
+            print("Failed to parse response:")
+            print(res.text)
             print("Exception:", e)
             break
 
         offset += 20
 
-    return submissions[:limit]
+    return submissions
+
+def get_submission_code(submission_id):
+    query = {
+        "operationName": "submissionDetails",
+        "variables": {
+            "submissionId": int(submission_id)
+        },
+        "query": """
+        query submissionDetails($submissionId: Int!) {
+            submissionDetails(submissionId: $submissionId) {
+                code
+                runtime
+                memory
+                lang {
+                    name
+                }
+                timestamp
+                question {
+                    title
+                    titleSlug
+                }
+            }
+        }
+        """
+    }
+
+    res = session.post("https://leetcode.com/graphql/", json=query)
+    try:
+        data = res.json()
+        code_data = data["data"]["submissionDetails"]
+        return code_data
+    except Exception as e:
+        print("Error fetching submission code:", e)
+        print("Raw response:", res.text)
+        return None
+
+
