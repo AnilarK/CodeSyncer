@@ -23,6 +23,7 @@ if __name__ == "__main__":
         return_document=True
     )
 
+#  python3 main.py                            
 
 
 
